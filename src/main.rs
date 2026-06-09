@@ -18,12 +18,6 @@ const BALL_SPEED: f32 = 400.0;
 const INITIAL_BALL_DIRECTION: Vec2 = Vec2::new(1.0, -1.0);
 
 const WALL_THICKNESS: f32 = 10.0;
-// x coordinates
-const LEFT_WALL: f32 = -450.;
-const RIGHT_WALL: f32 = 450.;
-// y coordinates
-const BOTTOM_WALL: f32 = -300.;
-const TOP_WALL: f32 = 300.;
 
 const BRICK_SIZE: Vec2 = Vec2::new(100., 30.);
 // These values are exact
@@ -36,13 +30,13 @@ const GAP_BETWEEN_BRICKS_AND_SIDES: f32 = 20.0;
 const SCOREBOARD_FONT_SIZE: f32 = 33.0;
 const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
 
-const BACKGROUND_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
-const PADDLE_COLOR: Color = Color::srgb(0.3, 0.3, 0.7);
-const BALL_COLOR: Color = Color::srgb(1.0, 0.5, 0.5);
-const BRICK_COLOR: Color = Color::srgb(0.5, 0.5, 1.0);
+const BACKGROUND_COLOR: Color = Color::srgb_u8(18, 18, 24);
+const PADDLE_COLOR: Color = Color::srgb_u8(84, 160, 255);
+const BALL_COLOR: Color = Color::WHITE;
+const BRICK_COLOR: Color = Color::srgb_u8(72, 219, 251);
 const WALL_COLOR: Color = Color::srgb(0.8, 0.8, 0.8);
-const TEXT_COLOR: Color = Color::srgb(0.5, 0.5, 1.0);
-const SCORE_COLOR: Color = Color::srgb(1.0, 0.5, 0.5);
+const TEXT_COLOR: Color = Color::srgb_u8(230, 230, 235);
+const SCORE_COLOR: Color = Color::srgb_u8(80, 160, 255);
 
 fn main() {
     App::new()
@@ -65,7 +59,7 @@ fn main() {
             (apply_velocity, move_paddle, check_for_collisions)
                 .chain(),
         )
-        .add_systems(Update, update_scoreboard)
+        .add_systems(Update, (update_scoreboard, exit_on_escape))
         // .add_observer(play_collision_sound)
         .run();
 }
@@ -107,19 +101,20 @@ enum WallLocation {
 
 impl WallLocation {
     /// Location of the *center* of the wall, used in `transform.translation()`
-    fn position(&self) -> Vec2 {
+    fn position(&self, wall: &WallPosition) -> Vec2 {
+        
         match self {
-            WallLocation::Left => Vec2::new(LEFT_WALL, 0.),
-            WallLocation::Right => Vec2::new(RIGHT_WALL, 0.),
-            WallLocation::Bottom => Vec2::new(0., BOTTOM_WALL),
-            WallLocation::Top => Vec2::new(0., TOP_WALL),
+            WallLocation::Left => Vec2::new(wall.left, 0.),
+            WallLocation::Right => Vec2::new(wall.right, 0.),
+            WallLocation::Bottom => Vec2::new(0., wall.bottom),
+            WallLocation::Top => Vec2::new(0., wall.top),
         }
     }
 
     /// (x, y) dimensions of the wall, used in `transform.scale()`
-    fn size(&self) -> Vec2 {
-        let arena_height = TOP_WALL - BOTTOM_WALL;
-        let arena_width = RIGHT_WALL - LEFT_WALL;
+    fn size(&self, wall: &WallPosition) -> Vec2 {
+        let arena_height = wall.top - wall.bottom;
+        let arena_width = wall.right - wall.left;
         // Make sure we haven't messed up our constants
         assert!(arena_height > 0.0);
         assert!(arena_width > 0.0);
@@ -139,18 +134,18 @@ impl Wall {
     // This "builder method" allows us to reuse logic across our wall entities,
     // making our code easier to read and less prone to bugs when we change the logic
     // Notice the use of Sprite and Transform alongside Wall, overwriting the default values defined for the required components
-    fn new(location: WallLocation) -> (Wall, Sprite, Transform) {
+    fn new(location: WallLocation, wall: &WallPosition) -> (Wall, Sprite, Transform) {
         (
             Wall,
             Sprite::from_color(WALL_COLOR, Vec2::ONE),
             Transform {
                 // We need to convert our Vec2 into a Vec3, by giving it a z-coordinate
                 // This is used to determine the order of our sprites
-                translation: location.position().extend(0.0),
+                translation: location.position(wall).extend(0.0),
                 // The z-scale of 2D objects must always be 1.0,
                 // or their ordering will be affected in surprising ways.
                 // See https://github.com/bevyengine/bevy/issues/4149
-                scale: location.size().extend(1.0),
+                scale: location.size(wall).extend(1.0),
                 ..default()
             },
         )
@@ -164,22 +159,58 @@ struct Score(usize);
 #[derive(Component)]
 struct ScoreboardUi;
 
+#[derive(Resource)]
+struct WindowInfo {
+    width: f32,
+    height: f32,
+}
+
+#[derive(Resource, Clone)]
+struct WallPosition {
+    left: f32,
+    right: f32,
+    bottom: f32,
+    top: f32,
+}
+
 // Add the game's entities to our world
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     _: Res<AssetServer>,
+    window: Single<&Window>
 ) {
     // Camera
     commands.spawn(Camera2d);
+
+    let width = window.width();
+    let left = -width / 2.0;
+    let right = width / 2.0;
+
+    let height = window.height();
+    let bottom = -height / 2.0 + 100.0;
+    let top = height / 2.0 - 100.0;
+
+    commands.insert_resource(WindowInfo {
+        width,
+        height,
+    });
+
+    let wall = WallPosition {
+        left,
+        right,
+        bottom,
+        top,
+    };
+    commands.insert_resource(wall.clone());
 
     // Sound
     // let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
     // commands.insert_resource(CollisionSound(ball_collision_sound));
 
     // Paddle
-    let paddle_y = BOTTOM_WALL + GAP_BETWEEN_PADDLE_AND_FLOOR;
+    let paddle_y = bottom + GAP_BETWEEN_PADDLE_AND_FLOOR;
 
     commands.spawn((
         Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
@@ -228,15 +259,15 @@ fn setup(
     ));
 
     // Walls
-    commands.spawn(Wall::new(WallLocation::Left));
-    commands.spawn(Wall::new(WallLocation::Right));
-    commands.spawn(Wall::new(WallLocation::Bottom));
-    commands.spawn(Wall::new(WallLocation::Top));
+    commands.spawn(Wall::new(WallLocation::Left, &wall));
+    commands.spawn(Wall::new(WallLocation::Right, &wall));
+    commands.spawn(Wall::new(WallLocation::Bottom, &wall));
+    commands.spawn(Wall::new(WallLocation::Top, &wall));
 
     // Bricks
-    let total_width_of_bricks = (RIGHT_WALL - LEFT_WALL) - 2. * GAP_BETWEEN_BRICKS_AND_SIDES;
+    let total_width_of_bricks = (right - left) - 2. * GAP_BETWEEN_BRICKS_AND_SIDES;
     let bottom_edge_of_bricks = paddle_y + GAP_BETWEEN_PADDLE_AND_BRICKS;
-    let total_height_of_bricks = TOP_WALL - bottom_edge_of_bricks - GAP_BETWEEN_BRICKS_AND_CEILING;
+    let total_height_of_bricks = top - bottom_edge_of_bricks - GAP_BETWEEN_BRICKS_AND_CEILING;
 
     assert!(total_width_of_bricks > 0.0);
     assert!(total_height_of_bricks > 0.0);
@@ -248,7 +279,7 @@ fn setup(
 
     // Because we need to round the number of columns,
     // the space on the top and sides of the bricks only captures a lower bound, not an exact value
-    let center_of_bricks = (LEFT_WALL + RIGHT_WALL) / 2.0;
+    let center_of_bricks = (left + right) / 2.0;
     let left_edge_of_bricks = center_of_bricks
         // Space taken up by the bricks
         - (n_columns as f32 / 2.0 * BRICK_SIZE.x)
@@ -289,6 +320,7 @@ fn move_paddle(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut paddle_transform: Single<&mut Transform, With<Paddle>>,
     time: Res<Time>,
+    wall: Res<WallPosition>
 ) {
     let mut direction = 0.0;
 
@@ -306,8 +338,8 @@ fn move_paddle(
 
     // Update the paddle position,
     // making sure it doesn't cause the paddle to leave the arena
-    let left_bound = LEFT_WALL + WALL_THICKNESS / 2.0 + PADDLE_SIZE.x / 2.0 + PADDLE_PADDING;
-    let right_bound = RIGHT_WALL - WALL_THICKNESS / 2.0 - PADDLE_SIZE.x / 2.0 - PADDLE_PADDING;
+    let left_bound = wall.left + WALL_THICKNESS / 2.0 + PADDLE_SIZE.x / 2.0 + PADDLE_PADDING;
+    let right_bound = wall.right - WALL_THICKNESS / 2.0 - PADDLE_SIZE.x / 2.0 - PADDLE_PADDING;
 
     paddle_transform.translation.x = new_paddle_position.clamp(left_bound, right_bound);
 }
@@ -418,4 +450,13 @@ fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collisio
     };
 
     Some(side)
+}
+
+fn exit_on_escape(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut exit: MessageWriter<AppExit>
+) {
+    if keyboard_input.just_pressed(KeyCode::Escape) {
+        exit.write(AppExit::Success);
+    }
 }
