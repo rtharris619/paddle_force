@@ -1,6 +1,6 @@
 use bevy::{
     math::bounding::{Aabb2d, BoundingCircle, BoundingVolume, IntersectsVolume},
-    prelude::*,
+    prelude::*
 };
 
 // These constants are defined in `Transform` units.
@@ -15,7 +15,7 @@ const PADDLE_PADDING: f32 = 10.0;
 const BALL_STARTING_POSITION: Vec3 = Vec3::new(0.0, -50.0, 1.0);
 const BALL_DIAMETER: f32 = 30.;
 const BALL_SPEED: f32 = 400.0;
-const INITIAL_BALL_DIRECTION: Vec2 = Vec2::new(0.5, -0.5);
+const INITIAL_BALL_DIRECTION: Vec2 = Vec2::new(1.0, -1.0);
 
 const WALL_THICKNESS: f32 = 10.0;
 // x coordinates
@@ -46,7 +46,15 @@ const SCORE_COLOR: Color = Color::srgb(1.0, 0.5, 0.5);
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Paddle Force".into(),
+                position: WindowPosition::Centered(MonitorSelection::Index(0)),
+                mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Index(0)),
+                ..default()
+            }),
+            ..default()
+        }))
         .insert_resource(Score(0))
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_systems(Startup, setup)
@@ -55,11 +63,10 @@ fn main() {
         .add_systems(
             FixedUpdate,
             (apply_velocity, move_paddle, check_for_collisions)
-                // `chain`ing systems together runs them in order
                 .chain(),
         )
         .add_systems(Update, update_scoreboard)
-        .add_observer(play_collision_sound)
+        // .add_observer(play_collision_sound)
         .run();
 }
 
@@ -78,8 +85,8 @@ struct BallCollided;
 #[derive(Component)]
 struct Brick;
 
-#[derive(Resource, Deref)]
-struct CollisionSound(Handle<AudioSource>);
+// #[derive(Resource, Deref)]
+// struct CollisionSound(Handle<AudioSource>);
 
 // Default must be implemented to define this as a required component for the Wall component below
 #[derive(Component, Default)]
@@ -162,14 +169,14 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    asset_server: Res<AssetServer>,
+    _: Res<AssetServer>,
 ) {
     // Camera
     commands.spawn(Camera2d);
 
     // Sound
-    let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
-    commands.insert_resource(CollisionSound(ball_collision_sound));
+    // let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
+    // commands.insert_resource(CollisionSound(ball_collision_sound));
 
     // Paddle
     let paddle_y = BOTTOM_WALL + GAP_BETWEEN_PADDLE_AND_FLOOR;
@@ -373,13 +380,13 @@ fn check_for_collisions(
     }
 }
 
-fn play_collision_sound(
-    _collided: On<BallCollided>,
-    mut commands: Commands,
-    sound: Res<CollisionSound>,
-) {
-    commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
-}
+// fn play_collision_sound(
+//     _collided: On<BallCollided>,
+//     mut commands: Commands,
+//     sound: Res<CollisionSound>,
+// ) {
+//     commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
+// }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum Collision {
