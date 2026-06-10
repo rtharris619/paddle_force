@@ -3,40 +3,7 @@ use bevy::{
     prelude::*
 };
 
-// These constants are defined in `Transform` units.
-// Using the default 2D camera they correspond 1:1 with screen pixels.
-const PADDLE_SIZE: Vec2 = Vec2::new(120.0, 20.0);
-const GAP_BETWEEN_PADDLE_AND_FLOOR: f32 = 60.0;
-const PADDLE_SPEED: f32 = 500.0;
-// How close can the paddle get to the wall
-const PADDLE_PADDING: f32 = 10.0;
-
-// We set the z-value of the ball to 1 so it renders on top in the case of overlapping sprites.
-const BALL_STARTING_POSITION: Vec3 = Vec3::new(0.0, -50.0, 1.0);
-const BALL_DIAMETER: f32 = 30.;
-const BALL_SPEED: f32 = 400.0;
-const INITIAL_BALL_DIRECTION: Vec2 = Vec2::new(1.0, -1.0);
-
-const WALL_THICKNESS: f32 = 10.0;
-
-const BRICK_SIZE: Vec2 = Vec2::new(100., 30.);
-// These values are exact
-const GAP_BETWEEN_PADDLE_AND_BRICKS: f32 = 270.0;
-const GAP_BETWEEN_BRICKS: f32 = 5.0;
-// These values are lower bounds, as the number of bricks is computed
-const GAP_BETWEEN_BRICKS_AND_CEILING: f32 = 20.0;
-const GAP_BETWEEN_BRICKS_AND_SIDES: f32 = 20.0;
-
-const SCOREBOARD_FONT_SIZE: f32 = 33.0;
-const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
-
 const BACKGROUND_COLOR: Color = Color::srgb_u8(18, 18, 24);
-const PADDLE_COLOR: Color = Color::srgb_u8(84, 160, 255);
-const BALL_COLOR: Color = Color::WHITE;
-const BRICK_COLOR: Color = Color::srgb_u8(72, 219, 251);
-const WALL_COLOR: Color = Color::srgb(0.8, 0.8, 0.8);
-const TEXT_COLOR: Color = Color::srgb_u8(230, 230, 235);
-const SCORE_COLOR: Color = Color::srgb_u8(80, 160, 255);
 
 fn main() {
     App::new()
@@ -60,15 +27,66 @@ fn main() {
                 .chain(),
         )
         .add_systems(Update, (update_scoreboard, exit_on_escape))
-        // .add_observer(play_collision_sound)
         .run();
 }
 
 #[derive(Component)]
 struct Paddle;
 
+#[derive(Resource, Clone)]
+struct PaddleInfo {
+    // Using the default 2D camera they correspond 1:1 with screen pixels.
+    size: Vec2,    
+    speed: f32,
+    // How close can the paddle get to the wall
+    padding: f32,
+    gap_to_floor: f32,
+    color: Color,
+}
+
+fn insert_paddle_resource(commands: &mut Commands, _: &Single<&Window>) -> PaddleInfo {
+    // TODO: update hardcoded values with window-scaled values.
+    let paddle_info = PaddleInfo {
+        size: Vec2::new(120.0, 20.0),
+        speed: 500.0,
+        padding: 10.0,
+        gap_to_floor: 60.0,
+        color: Color::srgb_u8(84, 160, 255),
+    };
+
+    commands.insert_resource(paddle_info.clone());
+
+    paddle_info
+}
+
 #[derive(Component)]
 struct Ball;
+
+#[derive(Resource, Clone)]
+struct BallInfo {
+    starting_position: Vec3,
+    initial_direction: Vec2,
+    diameter: f32,
+    speed: f32,
+    color: Color,
+}
+
+fn insert_ball_resource(commands: &mut Commands, _: &Single<&Window>) -> BallInfo {
+    // TODO: update hardcoded values with window-scaled values.
+
+    let ball_info = BallInfo {
+        // We set the z-value of the ball to 1 so it renders on top in the case of overlapping sprites.
+        starting_position: Vec3::new(0.0, -50.0, 1.0),
+        initial_direction: Vec2::new(0.5, -0.5),
+        diameter: 30.0,
+        speed: 400.0,
+        color: Color::WHITE,
+    };
+
+    commands.insert_resource(ball_info.clone());
+
+    ball_info
+}
 
 #[derive(Component, Deref, DerefMut)]
 struct Velocity(Vec2);
@@ -79,8 +97,33 @@ struct BallCollided;
 #[derive(Component)]
 struct Brick;
 
-// #[derive(Resource, Deref)]
-// struct CollisionSound(Handle<AudioSource>);
+#[derive(Resource, Clone)]
+struct BrickInfo {
+    size: Vec2,
+    gap: f32,
+    gap_to_paddle: f32,
+    // These values are lower bounds, as the number of bricks is computed
+    gap_to_ceiling: f32,
+    gap_to_sides: f32,
+    color: Color,
+}
+
+fn insert_brick_resource(commands: &mut Commands, _: &Single<&Window>) -> BrickInfo {
+    // TODO: update hardcoded values with window-scaled values.
+
+    let brick_info = BrickInfo {
+        size: Vec2::new(100.0, 30.0),
+        gap: 5.0,
+        gap_to_paddle: 500.0,
+        gap_to_ceiling: 20.0,
+        gap_to_sides: 20.0,
+        color: Color::srgb_u8(72, 219, 251),
+    };
+
+    commands.insert_resource(brick_info.clone());
+
+    brick_info
+}
 
 // Default must be implemented to define this as a required component for the Wall component below
 #[derive(Component, Default)]
@@ -90,6 +133,38 @@ struct Collider;
 #[derive(Component)]
 #[require(Sprite, Transform, Collider)]
 struct Wall;
+
+#[derive(Resource, Clone)]
+struct WallInfo {
+    left: f32,
+    right: f32,
+    bottom: f32,
+    top: f32,
+    thickness: f32,
+    color: Color,
+}
+
+fn insert_wall_resource(commands: &mut Commands, window: &Single<&Window>) -> WallInfo {
+    let width = window.width();
+    let left = -width / 2.0 + 50.0;
+    let right = width / 2.0 - 50.0;
+
+    let height = window.height();
+    let bottom = -height / 2.0 + 100.0;
+    let top = height / 2.0 - 100.0;
+
+    let wall_info = WallInfo {
+        left,
+        right,
+        bottom,
+        top,
+        thickness: 10.0,
+        color: Color::srgb(0.8, 0.8, 0.8),
+    };
+    commands.insert_resource(wall_info.clone());
+
+    wall_info
+}
 
 /// Which side of the arena is this wall located on?
 enum WallLocation {
@@ -101,8 +176,7 @@ enum WallLocation {
 
 impl WallLocation {
     /// Location of the *center* of the wall, used in `transform.translation()`
-    fn position(&self, wall: &WallPosition) -> Vec2 {
-        
+    fn position(&self, wall: &WallInfo) -> Vec2 {
         match self {
             WallLocation::Left => Vec2::new(wall.left, 0.),
             WallLocation::Right => Vec2::new(wall.right, 0.),
@@ -112,7 +186,7 @@ impl WallLocation {
     }
 
     /// (x, y) dimensions of the wall, used in `transform.scale()`
-    fn size(&self, wall: &WallPosition) -> Vec2 {
+    fn size(&self, wall: &WallInfo) -> Vec2 {
         let arena_height = wall.top - wall.bottom;
         let arena_width = wall.right - wall.left;
         // Make sure we haven't messed up our constants
@@ -121,10 +195,10 @@ impl WallLocation {
 
         match self {
             WallLocation::Left | WallLocation::Right => {
-                Vec2::new(WALL_THICKNESS, arena_height + WALL_THICKNESS)
+                Vec2::new(wall.thickness, arena_height + wall.thickness)
             }
             WallLocation::Bottom | WallLocation::Top => {
-                Vec2::new(arena_width + WALL_THICKNESS, WALL_THICKNESS)
+                Vec2::new(arena_width + wall.thickness, wall.thickness)
             }
         }
     }
@@ -134,10 +208,10 @@ impl Wall {
     // This "builder method" allows us to reuse logic across our wall entities,
     // making our code easier to read and less prone to bugs when we change the logic
     // Notice the use of Sprite and Transform alongside Wall, overwriting the default values defined for the required components
-    fn new(location: WallLocation, wall: &WallPosition) -> (Wall, Sprite, Transform) {
+    fn new(location: WallLocation, wall: &WallInfo) -> (Wall, Sprite, Transform) {
         (
             Wall,
-            Sprite::from_color(WALL_COLOR, Vec2::ONE),
+            Sprite::from_color(wall.color, Vec2::ONE),
             Transform {
                 // We need to convert our Vec2 into a Vec3, by giving it a z-coordinate
                 // This is used to determine the order of our sprites
@@ -156,21 +230,48 @@ impl Wall {
 #[derive(Resource, Deref, DerefMut)]
 struct Score(usize);
 
+#[derive(Resource, Clone)]
+struct ScoreInfo {
+    font_size: f32,
+    text_padding: Val,
+    text_color: Color,
+    score_color: Color,
+}
+
+fn insert_score_resource(commands: &mut Commands) -> ScoreInfo {
+    let score_info = ScoreInfo {
+        font_size: 33.0,
+        text_padding: Val::Px(5.0),
+        text_color: Color::srgb_u8(230, 230, 235),
+        score_color: Color::srgb_u8(80, 160, 255),
+    };
+
+    commands.insert_resource(score_info.clone());
+
+    score_info
+}
+
 #[derive(Component)]
 struct ScoreboardUi;
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 struct WindowInfo {
     width: f32,
     height: f32,
 }
 
-#[derive(Resource, Clone)]
-struct WallPosition {
-    left: f32,
-    right: f32,
-    bottom: f32,
-    top: f32,
+fn insert_window_resource(commands: &mut Commands, window: &Single<&Window>) -> WindowInfo {
+    let width = window.width();
+    let height = window.height();
+
+    let window_info = WindowInfo {
+        width,
+        height,
+    };
+
+    commands.insert_resource(window_info.clone());
+
+    window_info
 }
 
 // Add the game's entities to our world
@@ -184,39 +285,20 @@ fn setup(
     // Camera
     commands.spawn(Camera2d);
 
-    let width = window.width();
-    let left = -width / 2.0;
-    let right = width / 2.0;
+    insert_window_resource(&mut commands, &window);
 
-    let height = window.height();
-    let bottom = -height / 2.0 + 100.0;
-    let top = height / 2.0 - 100.0;
-
-    commands.insert_resource(WindowInfo {
-        width,
-        height,
-    });
-
-    let wall = WallPosition {
-        left,
-        right,
-        bottom,
-        top,
-    };
-    commands.insert_resource(wall.clone());
-
-    // Sound
-    // let ball_collision_sound = asset_server.load("sounds/breakout_collision.ogg");
-    // commands.insert_resource(CollisionSound(ball_collision_sound));
+    let wall_info = insert_wall_resource(&mut commands, &window);
 
     // Paddle
-    let paddle_y = bottom + GAP_BETWEEN_PADDLE_AND_FLOOR;
+    let paddle_info = insert_paddle_resource(&mut commands, &window);
+
+    let paddle_y = wall_info.bottom + paddle_info.gap_to_floor;
 
     commands.spawn((
-        Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
+        Sprite::from_color(paddle_info.color, Vec2::ONE),
         Transform {
             translation: Vec3::new(0.0, paddle_y, 0.0),
-            scale: PADDLE_SIZE.extend(1.0),
+            scale: paddle_info.size.extend(1.0),
             ..default()
         },
         Paddle,
@@ -224,89 +306,95 @@ fn setup(
     ));
 
     // Ball
+    let ball_info = insert_ball_resource(&mut commands, &window);
+
     commands.spawn((
         Mesh2d(meshes.add(Circle::default())),
-        MeshMaterial2d(materials.add(BALL_COLOR)),
-        Transform::from_translation(BALL_STARTING_POSITION)
-            .with_scale(Vec2::splat(BALL_DIAMETER).extend(1.)),
+        MeshMaterial2d(materials.add(ball_info.color)),
+        Transform::from_translation(ball_info.starting_position)
+            .with_scale(Vec2::splat(ball_info.diameter).extend(1.)),
         Ball,
-        Velocity(INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED),
+        Velocity(ball_info.initial_direction.normalize() * ball_info.speed),
     ));
 
     // Scoreboard
+    let score_info = insert_score_resource(&mut commands);
+
     commands.spawn((
         Text::new("Score: "),
         TextFont {
-            font_size: SCOREBOARD_FONT_SIZE,
+            font_size: score_info.font_size,
             ..default()
         },
-        TextColor(TEXT_COLOR),
+        TextColor(score_info.text_color),
         ScoreboardUi,
         Node {
             position_type: PositionType::Absolute,
-            top: SCOREBOARD_TEXT_PADDING,
-            left: SCOREBOARD_TEXT_PADDING,
+            top: score_info.text_padding,
+            left: score_info.text_padding,
             ..default()
         },
         children![(
             TextSpan::default(),
             TextFont {
-                font_size: SCOREBOARD_FONT_SIZE,
+                font_size: score_info.font_size,
                 ..default()
             },
-            TextColor(SCORE_COLOR),
+            TextColor(score_info.score_color),
         )],
     ));
 
     // Walls
-    commands.spawn(Wall::new(WallLocation::Left, &wall));
-    commands.spawn(Wall::new(WallLocation::Right, &wall));
-    commands.spawn(Wall::new(WallLocation::Bottom, &wall));
-    commands.spawn(Wall::new(WallLocation::Top, &wall));
+    commands.spawn(Wall::new(WallLocation::Left, &wall_info));
+    commands.spawn(Wall::new(WallLocation::Right, &wall_info));
+    commands.spawn(Wall::new(WallLocation::Bottom, &wall_info));
+    commands.spawn(Wall::new(WallLocation::Top, &wall_info));
 
     // Bricks
-    let total_width_of_bricks = (right - left) - 2. * GAP_BETWEEN_BRICKS_AND_SIDES;
-    let bottom_edge_of_bricks = paddle_y + GAP_BETWEEN_PADDLE_AND_BRICKS;
-    let total_height_of_bricks = top - bottom_edge_of_bricks - GAP_BETWEEN_BRICKS_AND_CEILING;
+    let brick_info = insert_brick_resource(&mut commands, &window);
+
+    let total_width_of_bricks = (wall_info.right - wall_info.left) - 2. * brick_info.gap_to_sides;
+    let bottom_edge_of_bricks = paddle_y + brick_info.gap_to_paddle;
+    let total_height_of_bricks = wall_info.top - bottom_edge_of_bricks - brick_info.gap_to_ceiling;
 
     assert!(total_width_of_bricks > 0.0);
     assert!(total_height_of_bricks > 0.0);
 
     // Given the space available, compute how many rows and columns of bricks we can fit
-    let n_columns = (total_width_of_bricks / (BRICK_SIZE.x + GAP_BETWEEN_BRICKS)).floor() as usize;
-    let n_rows = (total_height_of_bricks / (BRICK_SIZE.y + GAP_BETWEEN_BRICKS)).floor() as usize;
+    let n_columns = (total_width_of_bricks / (brick_info.size.x + brick_info.gap)).floor() as usize;
+    let n_rows = (total_height_of_bricks / (brick_info.size.y + brick_info.gap)).floor() as usize;
     let n_vertical_gaps = n_columns - 1;
 
     // Because we need to round the number of columns,
     // the space on the top and sides of the bricks only captures a lower bound, not an exact value
-    let center_of_bricks = (left + right) / 2.0;
+    let center_of_bricks = (wall_info.left + wall_info.right) / 2.0;
     let left_edge_of_bricks = center_of_bricks
         // Space taken up by the bricks
-        - (n_columns as f32 / 2.0 * BRICK_SIZE.x)
+        - (n_columns as f32 / 2.0 * brick_info.size.x)
         // Space taken up by the gaps
-        - n_vertical_gaps as f32 / 2.0 * GAP_BETWEEN_BRICKS;
+        - n_vertical_gaps as f32 / 2.0 * brick_info.gap;
 
     // In Bevy, the `translation` of an entity describes the center point,
     // not its bottom-left corner
-    let offset_x = left_edge_of_bricks + BRICK_SIZE.x / 2.;
-    let offset_y = bottom_edge_of_bricks + BRICK_SIZE.y / 2.;
+    let offset_x = left_edge_of_bricks + brick_info.size.x / 2.;
+    let offset_y = bottom_edge_of_bricks + brick_info.size.y / 2.;
 
     for row in 0..n_rows {
         for column in 0..n_columns {
             let brick_position = Vec2::new(
-                offset_x + column as f32 * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS),
-                offset_y + row as f32 * (BRICK_SIZE.y + GAP_BETWEEN_BRICKS),
+                offset_x + column as f32 * (brick_info.size.x + brick_info.gap),
+                offset_y + row as f32 * (brick_info.size.y + brick_info.gap),
             );
 
             // brick
             commands.spawn((
                 Sprite {
-                    color: BRICK_COLOR,
+                    color: brick_info.color,
                     ..default()
                 },
                 Transform {
                     translation: brick_position.extend(0.0),
-                    scale: Vec3::new(BRICK_SIZE.x, BRICK_SIZE.y, 1.0),
+                    scale: Vec3::new(brick_info.size.x, brick_info.size.y, 1.0),
                     ..default()
                 },
                 Brick,
@@ -320,7 +408,8 @@ fn move_paddle(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut paddle_transform: Single<&mut Transform, With<Paddle>>,
     time: Res<Time>,
-    wall: Res<WallPosition>
+    wall: Res<WallInfo>,
+    paddle: Res<PaddleInfo>,
 ) {
     let mut direction = 0.0;
 
@@ -334,12 +423,12 @@ fn move_paddle(
 
     // Calculate the new horizontal paddle position based on player input
     let new_paddle_position =
-        paddle_transform.translation.x + direction * PADDLE_SPEED * time.delta_secs();
+        paddle_transform.translation.x + direction * paddle.speed * time.delta_secs();
 
     // Update the paddle position,
     // making sure it doesn't cause the paddle to leave the arena
-    let left_bound = wall.left + WALL_THICKNESS / 2.0 + PADDLE_SIZE.x / 2.0 + PADDLE_PADDING;
-    let right_bound = wall.right - WALL_THICKNESS / 2.0 - PADDLE_SIZE.x / 2.0 - PADDLE_PADDING;
+    let left_bound = wall.left + wall.thickness / 2.0 + paddle.size.x / 2.0 + paddle.padding;
+    let right_bound = wall.right - wall.thickness / 2.0 - paddle.size.x / 2.0 - paddle.padding;
 
     paddle_transform.translation.x = new_paddle_position.clamp(left_bound, right_bound);
 }
@@ -362,6 +451,7 @@ fn update_scoreboard(
 fn check_for_collisions(
     mut commands: Commands,
     mut score: ResMut<Score>,
+    ball: Res<BallInfo>,
     ball_query: Single<(&mut Velocity, &Transform), With<Ball>>,
     collider_query: Query<(Entity, &Transform, Option<&Brick>), With<Collider>>,
 ) {
@@ -369,10 +459,10 @@ fn check_for_collisions(
 
     for (collider_entity, collider_transform, maybe_brick) in &collider_query {
         let collision = ball_collision(
-            BoundingCircle::new(ball_transform.translation.truncate(), BALL_DIAMETER / 2.),
+            BoundingCircle::new(ball_transform.translation.truncate(), ball.diameter / 2.0),
             Aabb2d::new(
                 collider_transform.translation.truncate(),
-                collider_transform.scale.truncate() / 2.,
+                collider_transform.scale.truncate() / 2.0,
             ),
         );
 
@@ -411,14 +501,6 @@ fn check_for_collisions(
         }
     }
 }
-
-// fn play_collision_sound(
-//     _collided: On<BallCollided>,
-//     mut commands: Commands,
-//     sound: Res<CollisionSound>,
-// ) {
-//     commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
-// }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum Collision {
