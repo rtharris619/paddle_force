@@ -3,7 +3,7 @@ use bevy::{
     prelude::*
 };
 
-const BACKGROUND_COLOR: Color = Color::srgb_u8(18, 18, 24);
+use crate::GameStatus::NewGame;
 
 fn main() {
     App::new()
@@ -16,8 +16,6 @@ fn main() {
             }),
             ..default()
         }))
-        .insert_resource(Score(0))
-        .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_systems(Startup, setup)
         // Add our gameplay simulation systems to the fixed timestep schedule
         // which runs at 64 Hz by default
@@ -26,7 +24,7 @@ fn main() {
             (apply_velocity, move_paddle, check_for_collisions)
                 .chain(),
         )
-        .add_systems(Update, (update_scoreboard, exit_on_escape))
+        .add_systems(Update, (update_scoreboard, exit_on_escape, space_bar_to_toggle_play))
         .run();
 }
 
@@ -77,7 +75,7 @@ fn insert_ball_resource(commands: &mut Commands, _: &Single<&Window>) -> BallInf
     let ball_info = BallInfo {
         // We set the z-value of the ball to 1 so it renders on top in the case of overlapping sprites.
         starting_position: Vec3::new(0.0, -50.0, 1.0),
-        initial_direction: Vec2::new(0.5, -0.5),
+        initial_direction: Vec2::new(1.0, -1.0),
         diameter: 30.0,
         speed: 400.0,
         color: Color::WHITE,
@@ -226,12 +224,10 @@ impl Wall {
     }
 }
 
-// This resource tracks the game's score
-#[derive(Resource, Deref, DerefMut)]
-struct Score(usize);
-
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Deref, DerefMut)]
 struct ScoreInfo {
+    #[deref]
+    value: usize,
     font_size: f32,
     text_padding: Val,
     text_color: Color,
@@ -240,6 +236,7 @@ struct ScoreInfo {
 
 fn insert_score_resource(commands: &mut Commands) -> ScoreInfo {
     let score_info = ScoreInfo {
+        value: 0,
         font_size: 33.0,
         text_padding: Val::Px(5.0),
         text_color: Color::srgb_u8(230, 230, 235),
@@ -274,6 +271,29 @@ fn insert_window_resource(commands: &mut Commands, window: &Single<&Window>) -> 
     window_info
 }
 
+#[derive(Clone, PartialEq)]
+enum GameStatus {
+    NewGame,
+    Running,
+    Paused,
+    GameOver,
+}
+
+#[derive(Resource, Clone)]
+struct GameStatusInfo {
+    status: GameStatus
+}
+
+fn insert_game_status_resource(commands: &mut Commands) -> GameStatusInfo {
+    let game_status_info = GameStatusInfo {
+        status: NewGame
+    };
+
+    commands.insert_resource(game_status_info.clone());
+
+    game_status_info
+}
+
 // Add the game's entities to our world
 fn setup(
     mut commands: Commands,
@@ -282,7 +302,11 @@ fn setup(
     _: Res<AssetServer>,
     window: Single<&Window>
 ) {
+    let game_status_info = insert_game_status_resource(&mut commands);
+
     // Camera
+    const BACKGROUND_COLOR: Color = Color::srgb_u8(18, 18, 24);
+    commands.insert_resource(ClearColor(BACKGROUND_COLOR));
     commands.spawn(Camera2d);
 
     insert_window_resource(&mut commands, &window);
@@ -308,13 +332,20 @@ fn setup(
     // Ball
     let ball_info = insert_ball_resource(&mut commands, &window);
 
+    // let mut ball_velocity = Vec2::new(0.0, 0.0);
+    // if game_status_info.status == GameStatus::Running {
+    //     ball_velocity = ball_info.initial_direction.normalize() * ball_info.speed;
+    // }
+
+    let ball_position = Vec3::new(0.0, paddle_y + ball_info.diameter, 1.0);
+
     commands.spawn((
         Mesh2d(meshes.add(Circle::default())),
         MeshMaterial2d(materials.add(ball_info.color)),
-        Transform::from_translation(ball_info.starting_position)
+        Transform::from_translation(ball_position)
             .with_scale(Vec2::splat(ball_info.diameter).extend(1.)),
         Ball,
-        Velocity(ball_info.initial_direction.normalize() * ball_info.speed),
+        Velocity(Vec2::new(0.0, 0.0)),
     ));
 
     // Scoreboard
@@ -433,7 +464,10 @@ fn move_paddle(
     paddle_transform.translation.x = new_paddle_position.clamp(left_bound, right_bound);
 }
 
-fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
+fn apply_velocity(
+    mut query: Query<(&mut Transform, &Velocity)>, 
+    time: Res<Time>,
+) {    
     for (mut transform, velocity) in &mut query {
         transform.translation.x += velocity.x * time.delta_secs();
         transform.translation.y += velocity.y * time.delta_secs();
@@ -441,16 +475,16 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>
 }
 
 fn update_scoreboard(
-    score: Res<Score>,
+    score: Res<ScoreInfo>,
     score_root: Single<Entity, (With<ScoreboardUi>, With<Text>)>,
     mut writer: TextUiWriter,
 ) {
-    *writer.text(*score_root, 1) = score.to_string();
+    *writer.text(*score_root, 1) = score.value.to_string();
 }
 
 fn check_for_collisions(
     mut commands: Commands,
-    mut score: ResMut<Score>,
+    mut score: ResMut<ScoreInfo>,
     ball: Res<BallInfo>,
     ball_query: Single<(&mut Velocity, &Transform), With<Ball>>,
     collider_query: Query<(Entity, &Transform, Option<&Brick>), With<Collider>>,
@@ -473,7 +507,7 @@ fn check_for_collisions(
             // Bricks should be despawned and increment the scoreboard on collision
             if maybe_brick.is_some() {
                 commands.entity(collider_entity).despawn();
-                **score += 1;
+                score.value += 1;
             }
 
             // Reflect the ball's velocity when it collides
@@ -540,5 +574,27 @@ fn exit_on_escape(
 ) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
         exit.write(AppExit::Success);
+    }
+}
+
+fn space_bar_to_toggle_play(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut query: Query<&mut Velocity, With<Ball>>,
+    mut game: ResMut<GameStatusInfo>,
+    ball: Res<BallInfo>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        if game.status == GameStatus::NewGame || game.status == GameStatus::Paused {
+            game.status = GameStatus::Running;
+            if let Ok(mut velocity) = query.single_mut() {
+                *velocity = Velocity(ball.initial_direction.normalize() * ball.speed);
+            }
+        } else {
+            game.status = GameStatus::Paused;
+            if let Ok(mut velocity) = query.single_mut() {
+                velocity.x = 0.0;
+                velocity.y = 0.0;
+            }
+        }
     }
 }
